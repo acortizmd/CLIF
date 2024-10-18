@@ -8,10 +8,10 @@ library(here)
 
 ##################### User input ###############################################
 # Set parameters
-filetype <- "parquet"
+filetype <- "csv"
 
 # change to CLIF-1.0 root directory 
-root_location <- here()
+root_location <- "/share/projects/data/circe/v20240331/clif"
 
 # maximum age allowed, beyond this are replaced with NAs
 max_age_at_adm <- 119
@@ -21,15 +21,13 @@ labs_filepath <- paste0(root_location, "/rclif/clif_labs.",
                         filetype)
 labs_output_filepath <- paste0(root_location, "/rclif/clif_labs_clean.", 
                                filetype)
-labs_outlier_thresholds_filepath <- paste0(root_location, 
-                                           "/rclif_qc/nejm_outlier_thresholds_labs.csv")
+labs_outlier_thresholds_filepath <- paste0("~/CLIF/outlier-handling/concept_paper_outlier_thresholds_labs.csv")
 
 vitals_filepath <- paste0(root_location, "/rclif/clif_vitals.", 
                           filetype)
 vitals_output_filepath <- paste0(root_location, "/rclif/clif_vitals_clean.", 
                                  filetype)
-vitals_outlier_thresholds_filepath <- paste0(root_location, 
-                                             "/rclif_qc/nejm_outlier_thresholds_vitals.csv")
+vitals_outlier_thresholds_filepath <- paste0("~/CLIF/outlier-handling/concept_paper_outlier_thresholds_vitals.csv")
 
 encounter_filepath <- paste0(root_location, 
                              "/rclif/clif_encounter_demographics_dispo.", 
@@ -39,7 +37,7 @@ encounter_output_filepath <- paste0(root_location, "/rclif/clif_encounter_demogr
 
 
 # Specify directory for result files
-results_path <- paste0(root_location, "/rclif_qc")
+results_path <- paste0("~/CLIF/outlier-handling")
 
 ##################### Functions  ###############################################
 # Define function to read data
@@ -133,12 +131,12 @@ clif_labs_clean <- replace_outliers_with_na_long(clif_labs,
 # Write clean labs file
 write_data(clif_labs_clean, labs_output_filepath, filetype)
 
-lab_summary_stats <- generate_summary_stats(clif_labs_clean,
-                                            lab_category, 
-                                            lab_value_numeric)
-write_data(lab_summary_stats, paste0(results_path, 
-                                     "/labs/clif_vitals_labs_stats_R.csv"), 
-           'csv')
+#lab_summary_stats <- generate_summary_stats(clif_labs_clean,
+#                                            lab_category, 
+#                                            lab_value_numeric)
+#write_data(lab_summary_stats, paste0(results_path, 
+#                                     "/labs/clif_vitals_labs_stats_R.csv"), 
+#           'csv')
 
 #####################   Vitals   ###############################################
 
@@ -159,12 +157,12 @@ clif_vitals_clean <- replace_outliers_with_na_long(clif_vitals,
 # Write clean labs file
 write_data(clif_vitals_clean, vitals_output_filepath, filetype)
 
-vital_summary_stats <- generate_summary_stats(clif_vitals_clean, 
-                                              vital_category, 
-                                              vital_value)
-write_data(vital_summary_stats, paste0(results_path, 
-                                       "/vitals/clif_vitals_summary_stats_R.csv"), 
-           'csv')
+#vital_summary_stats <- generate_summary_stats(clif_vitals_clean, 
+#                                              vital_category, 
+#                                              vital_value)
+#write_data(vital_summary_stats, paste0(results_path, 
+#                                       "/vitals/clif_vitals_summary_stats_R.csv"), 
+#           'csv')
 
 ################Encounter Demographics Dispo  ##################################
 

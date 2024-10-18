@@ -11,8 +11,8 @@ sapply(packages, install_if_missing)
 
 con <- duckdb::dbConnect(duckdb::duckdb(), dbdir = ":memory:")
 
-tables_location <- 'C:/Users/vchaudha/OneDrive - rush.edu/CLIF-1.0-main'
-site <-'RUSH'
+tables_location <- '/share/projects/data/circe/v20240331/clif/'
+site <-'Penn'
 file_type <- '.csv'
 
 # Check if the output directory exists; if not, create it
@@ -41,13 +41,13 @@ ventilator <- read_data(paste0(tables_location, "/rclif/clif_respiratory_support
 
 
 # First join operation
-join <- location %>%
-  select(encounter_id, location_category, in_dttm, out_dttm) %>%
+join <- location %>% 
+  select(encounter_id, location_category, in_dttm, out_dttm) %>% unique()
   left_join(limited %>% select(encounter_id, admission_dttm), by = "encounter_id")
 
 # Second join operation to get 'icu_data'
 icu_data <- join %>%
-  left_join(encounter %>% select(encounter_id, age_at_admission, disposition_category), by = "encounter_id") %>%
+  left_join(encounter %>% select(encounter_id, age_at_admission, disposition) %>% unique(), by = "encounter_id") %>%
   mutate(
     admission_dttm = ymd_hms(admission_dttm), # Convert to POSIXct, adjust the function as per your date format
     in_dttm = ymd_hms(in_dttm), # Convert to POSIXct, adjust the function as per your date format
@@ -186,7 +186,7 @@ icu_data <- icu_data %>%
 # Calculate the difference in hours
 icu_data$ICU_stay_hrs <- as.numeric(difftime(icu_data$max_out_dttm, icu_data$min_in_dttm, units = "secs")) / 3600
 
-write.csv(icu_data, paste0(tables_location, "/projects/Mortality_model/output/ICU_cohort", '.csv'), row.names = FALSE)
+write.csv(icu_data, paste0("~/CLIF/projects/concept_paper/Mortality_model/output/ICU_cohort", '.csv'), row.names = FALSE)
 
 
 # HTML content (make sure your actual HTML string is correctly input here)
@@ -201,4 +201,4 @@ df <- table[[1]]
 
 # Rename 'Overall(N=14598)' to 'fabc(N=14598)' using the site variable
 names(df) <- gsub("Overall\\(N=(\\d+)\\)", paste0(site, ' ', "(N=\\1)"), names(df))
-write.csv(df, paste0(tables_location, "/projects/Mortality_model/output/table1_",site, '.csv'), row.names = FALSE)
+write.csv(df, paste0("~/CLIF/projects/concept_paper/Mortality_model/output/table1_",site, '.csv'), row.names = FALSE)
