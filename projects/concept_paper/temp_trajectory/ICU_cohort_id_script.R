@@ -11,8 +11,8 @@ sapply(packages, install_if_missing)
 
 con <- duckdb::dbConnect(duckdb::duckdb(), dbdir = ":memory:")
 
-tables_location <- 'C:/Users/vchaudha/OneDrive - rush.edu/CLIF-1.0-main'
-site <-'RUSH'
+tables_location <- '/share/projects/data/circe/v20240331/clif'
+site <-'Penn'
 file_type <- '.csv'
 
 # Check if the output directory exists; if not, create it
@@ -38,6 +38,8 @@ encounter <- read_data(paste0(tables_location, "/rclif/clif_encounter_demographi
 limited <- read_data(paste0(tables_location, "/rclif/clif_limited_identifiers", file_type))
 demog <- read_data(paste0(tables_location, "/rclif/clif_patient_demographics", file_type))
 ventilator <- read_data(paste0(tables_location, "/rclif/clif_respiratory_support", file_type))
+
+encounter <- encounter %>% rename(disposition_category=disposition)
 
 
 # First join operation
@@ -186,19 +188,50 @@ icu_data <- icu_data %>%
 # Calculate the difference in hours
 icu_data$ICU_stay_hrs <- as.numeric(difftime(icu_data$max_out_dttm, icu_data$min_in_dttm, units = "secs")) / 3600
 
-write.csv(icu_data, paste0(tables_location, "/projects/Mortality_model/output/ICU_cohort", '.csv'), row.names = FALSE)
+write.csv(icu_data, paste0(tables_location, "/temp_trajectory/ICU_cohort", '.csv'), row.names = FALSE)
 
 
 # HTML content (make sure your actual HTML string is correctly input here)
 html_content <- table1(~ sex + age + race + ethnicity + Mortality + Ventilator + ICU_stay_hrs, data=icu_data)
 
-# Use rvest to read the HTML table
-table <- read_html(html_content) %>%
-  html_table(fill = TRUE)
+
+
+
+library(xml2)
+library(dplyr)
+
+# Read HTML content
+doc <- read_html(html_content)
+
+# Extract tables with xml2
+tables <- xml_find_all(doc, "//table")
+
+# Parse each table
+parsed_tables <- lapply(tables, function(table) {
+  # Get all rows
+  rows <- xml_find_all(table, ".//tr")
+  
+  # Extract cells within each row
+  data <- lapply(rows, function(row) {
+    cells <- xml_find_all(row, ".//th | .//td")
+    xml_text(cells)
+  })
+  
+  # Convert to data.frame, handling different row lengths with `rbind`
+  df <- as.data.frame(do.call(rbind, lapply(data, `length<-`, max(lengths(data)))), stringsAsFactors = FALSE)
+  
+  return(df)
+})
+
+# Access each table individually, for example:
+table1 <- parsed_tables[[1]]
+
+
+
 
 # The first element of the list should be your table
-df <- table[[1]]
+df <- table1
 
 # Rename 'Overall(N=14598)' to 'fabc(N=14598)' using the site variable
 names(df) <- gsub("Overall\\(N=(\\d+)\\)", paste0(site, ' ', "(N=\\1)"), names(df))
-write.csv(df, paste0(tables_location, "/projects/Mortality_model/output/table1_",site, '.csv'), row.names = FALSE)
+write.csv(df, paste0(tables_location, "/temp_trajectory/table1_",site, '.csv'), row.names = FALSE)

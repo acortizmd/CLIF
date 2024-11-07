@@ -6,9 +6,9 @@ library(flipTime)
 library(here)
 
 ###################### User Input. ############################################
-tables_location <- here()
-site <-'UCMC'
-file_type <- '.parquet'
+tables_location <- "/share/projects/data/circe/v20240331/clif/"
+site <-'Penn'
+file_type <- '.csv'
 
 
 ###################### Load data   ############################################
@@ -19,7 +19,7 @@ if (!dir.exists("output")) {
 
 read_data <- function(file_path) {
   if (grepl("\\.csv$", file_path)) {
-    return(read.csv(file_path))
+    return(fread(file_path))
   } else if (grepl("\\.parquet$", file_path)) {
     return(arrow::read_parquet(file_path))
   } else if (grepl("\\.fst$", file_path)) {
@@ -30,7 +30,7 @@ read_data <- function(file_path) {
 }
 
 #Load ICU Cohort and other files
-icu_cohort <- read_data(paste0(tables_location, "/projects/Mortality_model/output/ICU_cohort.csv"))
+icu_cohort <- read_data(paste0(tables_location, "/temp_trajectory/ICU_cohort.csv"))
 # list of encounter ids from the icu cohort to right join on other clif tables
 keep_cohort <- icu_cohort %>%  select(encounter_id) %>%  distinct()
 
@@ -57,6 +57,15 @@ ventilator <- left_join(ventilator, encounter, by = "encounter_id")%>%
   filter(device_category =="Vent")%>% 
   select(encounter_id)%>%distinct()%>%deframe()
 
+
+
+patient_demogs <- patient_demogs %>% mutate(race = case_when(race %in% c("Asian") ~ "Asian",
+                                                             race %in% c("Black or African American") ~ "Black",
+                                                             race %in% c("Native Hawaiian or Other Pacific Islander") ~ "Pacific Islander",
+                                                             race %in% c("Other", "Unknown", "American Indian or Alaska Native") ~ "Other",
+                                                             race %in% c("White") ~ "White",
+                                                             race %in% c() ~ "Non-Hispanic"))
+
 #load Locations and demographics
 location <- read_data(paste0(tables_location, "/rclif/clif_adt", file_type)) %>%
   filter(location_category == "ICU")%>%
@@ -77,7 +86,7 @@ vitals<- vitals%>%
   filter(vital_category == "temp_c")
 
 #Merging datasets
-merged_data <- merge(vitals, location, by = "encounter_id")
+merged_data <- merge(vitals, location, by = "encounter_id", allow.cartesian = TRUE)
 merged_data <- merge(merged_data, mergeddemographics, by = "encounter_id")
 merged_data <- inner_join(merged_data, icu_cohort, by = "encounter_id")
 
@@ -159,7 +168,7 @@ table_alg <- temp_algorithm %>%
   filter(!is.na(age_at_admission)) %>%
   mutate(vent = ifelse(encounter_id %in% ventilator, 1, 0)) %>%
   mutate(icu = ifelse(encounter_id %in% icu_encounters, 1, 0)) %>%
-  mutate(death = ifelse(disposition_category %in% c("Dead"), 1, 0)) %>% 
+  mutate(death = ifelse(disposition %in% c("Dead"), 1, 0)) %>% 
   mutate(HSR = ifelse(model == 1, 1, 0)) %>%  # Renaming model1 to HSR
   mutate(HFR = ifelse(model == 2, 1, 0)) %>%  # Renaming model2 to HFR
   mutate(NT = ifelse(model == 3, 1, 0)) %>%   # Renaming model3 to NT
@@ -223,14 +232,14 @@ temp_traj_plot <- ggplot(table_temp_traj_cohort, aes(x = hour, y = avg_temperatu
     axis.text.x = element_text(angle = 45, hjust = 1),  # Adjust text angle and position
     plot.title = element_text(hjust = 0.5)  # Center the plot title
   )
-plot_file_path <- paste0(tables_location, "/projects/temp_trajectory/temp_traj_plot_", 
+plot_file_path <- paste0(tables_location, "/temp_trajectory/temp_traj_plot_", 
                          site, 
                          ".jpeg")
 # Save the plot
 ggsave(plot_file_path, plot = temp_traj_plot, width = 10, height = 6, dpi = 300)
 
 write.csv(table_temp_traj_cohort, 
-          paste0(tables_location, "/projects/temp_trajectory/table_temp_traj_cohort_", 
+          paste0(tables_location, "/temp_trajectory/table_temp_traj_cohort_", 
                  site, ".csv"), row.names = FALSE)
 
 table2_alg_summary <- temp_algorithm %>%
@@ -238,7 +247,7 @@ table2_alg_summary <- temp_algorithm %>%
   filter(!is.na(age_at_admission)) %>%
   mutate(vent = ifelse(encounter_id %in% ventilator, 1, 0)) %>%
   mutate(icu = ifelse(encounter_id %in% icu_encounters, 1, 0)) %>%
-  mutate(death = ifelse(disposition_category %in% c("Dead"), 1, 0)) %>%
+  mutate(death = ifelse(disposition %in% c("Dead"), 1, 0)) %>%
   mutate(HSR = ifelse(model == 1, 1, 0)) %>%  # Renaming model1 to HSR
   mutate(HFR = ifelse(model == 2, 1, 0)) %>%  # Renaming model2 to HFR
   mutate(NT = ifelse(model == 3, 1, 0)) %>%   # Renaming model3 to NT
@@ -308,6 +317,8 @@ df_alg <- df_alg %>%
 df_alg <- df_alg %>%
   mutate(Features = rep(c("Intercept", "HSR", "HFR", "HT", "Age", "Male sex", "Asian", "Black", "Pacific Islander", "Other", "White", "Non-Hispanic"), times = 2))
 
+table_alg %>% group_by(race) %>% summarise(count=n())
+
 # Calculate confidence intervals and odds ratios, and format p-values in df_alg
 df_alg <- df_alg %>%
   select(!`z value`)%>%
@@ -376,19 +387,19 @@ or_plot <- ggplot(graph_alg, aes(x = order, y = `Odds ratio`, color = order)) +
   facet_wrap(~ outcome)
 
 plot_file_path <- paste0(tables_location, 
-                         "/projects/temp_trajectory/OR_",
+                         "/temp_trajectory/OR_",
                          site, ".jpeg")
 # Save the plot
 ggsave(plot_file_path, plot = or_plot, width = 10, height = 6, dpi = 300)
 
 # Save df_alg dataframe as CSV
 file_path <- paste0(tables_location, 
-                    "/projects/temp_trajectory/df_temptraj_72_post_icu_", 
+                    "/temp_trajectory/df_temptraj_72_post_icu_", 
                     site, ".csv")
 write.csv(df_alg, file = file_path, row.names = FALSE)
 
 # Save table2_alg dataframe as CSV
 file_path <- paste0(tables_location, 
-                    "/projects/temp_trajectory/table2_temptraj_72_post_icu_", 
+                    "/temp_trajectory/table2_temptraj_72_post_icu_", 
                     site, ".csv")
 write.csv(table2_alg, file = file_path, row.names = FALSE)

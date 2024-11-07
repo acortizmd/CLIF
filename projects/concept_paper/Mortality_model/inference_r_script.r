@@ -11,8 +11,8 @@ sapply(packages, install_if_missing)
 
 con <- duckdb::dbConnect(duckdb::duckdb(), dbdir = ":memory:")
 
-tables_location <- "C:/Users/vchaudha/OneDrive - rush.edu/CLIF-1.0-main" 
-site <-'RUSH'
+tables_location <- "/share/projects/data/circe/v20240331/clif/" 
+site <-'Penn'
 file_type <- '.csv'
 
 # Check if the output directory exists; if not, create it
@@ -22,7 +22,7 @@ if (!dir.exists("output")) {
 
 read_data <- function(file_path) {
   if (grepl("\\.csv$", file_path)) {
-    return(read.csv(file_path))
+    return(fread(file_path))
   } else if (grepl("\\.parquet$", file_path)) {
     return(arrow::read_parquet(file_path))
   } else if (grepl("\\.fst$", file_path)) {
@@ -185,7 +185,7 @@ vitals <- dbGetQuery(con, "SELECT
     FROM 
         vitals
     WHERE 
-        vital_category IN ('weight_kg', 'pulse', 'sbp', 'dbp', 'temp_c','height_inches') 
+        vital_category IN ('weight_kg', 'pulse', 'sbp', 'dbp', 'temp_c','height_cm') 
         AND encounter_id IN (SELECT DISTINCT encounter_id FROM icu_data);")
 duckdb_unregister(con, "vitals")       
 pivoted_data <- vitals %>%
@@ -200,7 +200,7 @@ rm(vitals)
 gc()  # invokes garbage collection
 pivoted_data <- pivoted_data %>%
   mutate(
-    height_meters = height_inches * 0.0254,
+    height_meters = height_cm/100,
     bmi = weight_kg / (height_meters ^ 2)
   ) %>%  as.data.frame
 
@@ -225,9 +225,9 @@ icu_data_agg <- tbl(con, "icu_data_agg") %>%
     min_weight_kg = min(weight_kg, na.rm = TRUE), 
     max_weight_kg = max(weight_kg, na.rm = TRUE),
     avg_weight_kg = mean(weight_kg, na.rm = TRUE),
-    min_pulse = min(pulse, na.rm = TRUE),
-    max_pulse = max(pulse, na.rm = TRUE),
-    avg_pulse = mean(pulse, na.rm = TRUE),
+    #min_pulse = min(pulse, na.rm = TRUE),
+    #max_pulse = max(pulse, na.rm = TRUE),
+    #avg_pulse = mean(pulse, na.rm = TRUE),
     min_sbp = min(sbp, na.rm = TRUE),
     max_sbp = max(sbp, na.rm = TRUE),
     avg_sbp = mean(sbp, na.rm = TRUE),
@@ -250,34 +250,38 @@ gc()  # invokes garbage collection
 labs <- read_data(paste0(tables_location, "/rclif/clif_labs_clean", file_type))
 duckdb_register(con, "labs", labs)
 labs <- dbGetQuery(con, "
- SELECT 
-        encounter_id,
-        CAST(lab_order_dttm AS datetime) AS lab_order_dttm,
-        TRY_CAST(lab_value AS float) AS lab_value,
-        lab_category 
-    FROM 
-        labs
-    WHERE 
-      ((lab_category='monocyte'               and lab_type_name='standard') OR
-        (lab_category='lymphocyte'              and lab_type_name='standard') OR
-        (lab_category='basophil'                and lab_type_name='standard') OR
-        (lab_category='neutrophil'              and lab_type_name='standard') OR
-        (lab_category='albumin'                 and lab_type_name='standard') OR
-        (lab_category='ast'                     and lab_type_name='standard') OR
-        (lab_category='total_protein'           and lab_type_name='standard') OR
-        (lab_category='alkaline_phosphatase'    and lab_type_name='standard') OR
-        (lab_category='bilirubin_total'         and lab_type_name='standard') OR
-        (lab_category='bilirubin_conjugated'    and lab_type_name='standard') OR
-        (lab_category='calcium'                 and lab_type_name='standard') OR
-        (lab_category='chloride'                and lab_type_name='standard') OR
-        (lab_category='potassium'               and lab_type_name='standard') OR
-        (lab_category='sodium'                  and lab_type_name='standard') OR
-        (lab_category='glucose_serum'           and lab_type_name='standard') OR
-        (lab_category='hemoglobin'              and lab_type_name='standard') OR
-        (lab_category='platelet_count'          and lab_type_name='standard') OR
-        (lab_category='wbc'                     and lab_type_name='standard'))
-        AND encounter_id IN (SELECT DISTINCT encounter_id FROM icu_data);
+SELECT 
+    encounter_id,
+    CAST(lab_order_dttm AS TIMESTAMP) AS lab_order_dttm,
+    lab_value_numeric,
+    lab_category 
+FROM 
+    labs
+WHERE 
+    ((lab_category = 'monocyte') OR
+     (lab_category = 'lymphocyte') OR
+     (lab_category = 'basophil') OR
+     (lab_category = 'neutrophil') OR
+     (lab_category = 'albumin') OR
+     (lab_category = 'ast') OR
+     (lab_category = 'total_protein') OR
+     (lab_category = 'alkaline_phosphatase') OR
+     (lab_category = 'bilirubin_total') OR
+     (lab_category = 'bilirubin_conjugated') OR
+     (lab_category = 'calcium') OR
+     (lab_category = 'chloride') OR
+     (lab_category = 'potassium') OR
+     (lab_category = 'sodium') OR
+     (lab_category = 'glucose_serum') OR
+     (lab_category = 'hemoglobin') OR
+     (lab_category = 'platelet_count') OR
+     (lab_category = 'wbc'))
+    AND lab_value_numeric <> ''  -- Exclude empty strings
+    AND encounter_id IN (SELECT DISTINCT encounter_id FROM icu_data);
 ")
+
+# Convert lab_value_numeric to numeric in R, suppressing warnings for non-numeric values
+labs$lab_value <- as.numeric(labs$lab_value_numeric)
 
 pivoted_data <- labs  %>%
   group_by(encounter_id, lab_order_dttm, lab_category) %>%
@@ -295,9 +299,9 @@ icu_data_agg <- filter(icu_data_agg, lab_order_dttm >= min_in_dttm & lab_order_d
 duckdb_register(con, "icu_data_agg", icu_data_agg)
 
 Lab_variables <- c('albumin', 'alkaline_phosphatase',
-       'ast', 'basophil', 'bilirubin_conjugated', 'bilirubin_total', 'calcium',
-       'chloride', 'hemoglobin', 'lymphocyte', 'monocyte', 'glucose_serum', 
-       'neutrophil', 'potassium', 'sodium', 'total_protein','platelet_count', 
+       'ast',  'bilirubin_conjugated', 'bilirubin_total', 
+        'hemoglobin',  'glucose_serum', 
+       'potassium',  'total_protein','platelet_count', 
        'wbc')
 
 icu_data_agg <- tbl(con, "icu_data_agg") %>% 
@@ -342,7 +346,7 @@ model_col <- c('isfemale', 'age', 'min_bmi', 'max_bmi', 'avg_bmi',
                'total_protein_mean', 'wbc_min', 'wbc_max', 'wbc_mean')
 
 
-model_file_path <- sprintf("%s/projects/Mortality_model/models/lgbm_model_20240628-092136.txt", tables_location)
+model_file_path <- "~/CLIF/projects/concept_paper/Mortality_model/models/lgbm_model_20240628-092136.txt"
 
 # Load the model
 model <- lgb.load(model_file_path)
@@ -369,8 +373,11 @@ imp_features_split <- c(
   "alkaline_phosphatase_max", "hemoglobin_min", "ast_max", "avg_dbp"
 )
 
-# Assuming icu_data is your data frame and output_directory, site_name are defined
-data_unstack <- melt(icu_data[imp_features_split], variable.name = 'imp_features_split', value.name = 'value')
+# Filter imp_features_split to only include valid column names in icu_data
+valid_features <- imp_features_split[imp_features_split %in% colnames(icu_data)]
+
+# Use only the valid features for the melt function
+data_unstack <- reshape2::melt(icu_data[, valid_features], variable.name = 'imp_features_split', value.name = 'value')
 
 # Generate the facet grid histograms
 generate_facetgrid_histograms(data_unstack, 'imp_features_split', 'value')
@@ -390,7 +397,7 @@ data_summary_t <- data_summary %>%
   pivot_longer(cols = -imp_features_split, names_to = 'statistic', values_to = 'value') %>%
   pivot_wider(names_from = imp_features_split, values_from = value)
 
-write.csv(data_summary_t, sprintf("output/imp_features_split_stats_%s.csv", site), row.names = FALSE)
+write.csv(data_summary_t, sprintf("/share/projects/data/circe/v20240331/clif/Mortality_model/output/imp_features_split_stats_%s.csv", site), row.names = FALSE)
 
 
 data_summary_t
@@ -403,8 +410,12 @@ imp_features_gain <- c(
   "wbc_mean", "wbc_min", "albumin_mean", "glucose_serum_mean"
 )
 
-# Unstack the data
-data_unstack <- melt(icu_data[imp_features_gain], variable.name = 'imp_features_gain', value.name = 'value')
+# Filter imp_features_split to only include valid column names in icu_data
+valid_featuresg <- imp_features_gain[imp_features_gain %in% colnames(icu_data)]
+
+# Use only the valid features for the melt function
+data_unstack <- reshape2::melt(icu_data[, valid_featuresg], variable.name = 'imp_features_gain', value.name = 'value')
+
 
 # Generate and display the histograms
 generate_facetgrid_histograms(data_unstack, 'imp_features_gain', 'value')
@@ -427,10 +438,18 @@ data_summary_t <- data_summary %>%
   pivot_wider(names_from = imp_features_gain, values_from = value)
 
 # Save the transposed summary statistics to a CSV file
-write.csv(data_summary_t, sprintf("output/imp_features_gain_stats_%s.csv", site), row.names = FALSE)
+write.csv(data_summary_t, sprintf("/share/projects/data/circe/v20240331/clif/Mortality_model/output/imp_features_gain_stats_%s.csv", site), row.names = FALSE)
 data_summary
 ### Probablity table
-X_test <- as.matrix(icu_data[model_col])
+missing_features <- setdiff(model_col, colnames(icu_data))
+
+# Add the missing columns to icu_data with a default value of 0 for testing
+icu_data[missing_features] <- 0
+
+# Select only the model columns to ensure the correct order
+X_test <- icu_data[, model_col, drop = FALSE]
+X_test <- as.matrix(X_test)
+
 y_test <- factor(icu_data$isdeathdispo)  
 y_pred_proba <- predict(model, X_test)
 y_pred_class <- as.numeric(y_pred_proba > 0.208)
@@ -483,6 +502,7 @@ for (i in 1:n_iterations) {
   metrics[i, ] <- calculate_metrics(predicted_probabilities_sample, predicted_classes_sample, y_test_sample)
 }
 
+library(caret)
 # Calculate mean and 95% confidence intervals
 mean_metrics <- apply(metrics, 2, mean, na.rm = TRUE)
 ci_lower <- apply(metrics, 2, function(x) quantile(x, 0.025, na.rm = TRUE))
@@ -498,7 +518,7 @@ results_metric <- data.frame(
 )
 
 # Export to CSV
-write.csv(results_metric, sprintf("output/result_metrics_2_%s.csv", site), row.names = FALSE)
+write.csv(results_metric, sprintf("/share/projects/data/circe/v20240331/clif/Mortality_model/output/result_metrics_2_%s.csv", site), row.names = FALSE)
 
 # Print the results
 results_metric
@@ -563,7 +583,7 @@ calculate_metrics <- function(data, true_col, pred_prob_col, subgroup_cols, thre
 
 # Example usage
 result_df <- calculate_metrics(icu_data, 'isdeathdispo', 'pred_proba', c('race', 'ethnicity', 'sex'))
-write.csv(result_df, file = paste0("output/fairness_test_", site, ".csv"), row.names = FALSE)
+write.csv(result_df, file = paste0("/share/projects/data/circe/v20240331/clif/Mortality_model/output/fairness_test_", site, ".csv"), row.names = FALSE)
 
 result_df
 ### Site Thr Analysis
@@ -628,7 +648,7 @@ top_n_percentile <- function(target_var, pred_proba, site_name) {
 # Usage example (you need to define y_test, y_pred_proba, and site_name)
 topn <- top_n_percentile(y_test, y_pred_proba, site)
 
-write.csv(topn, file =  paste0("output/Top_N_percentile_PPV_", site, ".csv"), row.names = FALSE)
+write.csv(topn, file =  paste0("/share/projects/data/circe/v20240331/clif/Mortality_model/output/Top_N_percentile_PPV_", site, ".csv"), row.names = FALSE)
 head(topn,5)
 
 #### Rush THR Top N
@@ -679,7 +699,7 @@ row <- data.frame(Thr_Value = thr,
 
 # Append the row to the results data frame
 results <- rbind(results, row)
-write.csv(head(results,1), file =  paste0("output/Top_N_percentile_atRushThr_", site, ".csv"), row.names = FALSE)
+write.csv(head(results,1), file =  paste0("/share/projects/data/circe/v20240331/clif/Mortality_model/output/Top_N_percentile_atRushThr_", site, ".csv"), row.names = FALSE)
 head(results,1)
 create_calibration_data <- function(y_test, y_pred_proba, n_bins = 10) {
 
@@ -708,7 +728,7 @@ create_calibration_data <- function(y_test, y_pred_proba, n_bins = 10) {
 
 calibration_data <- create_calibration_data(as.numeric(y_test), y_pred_proba)
 
-write.csv(calibration_data, file = paste0("output/calibration_data_", site, ".csv"), row.names = FALSE)
+write.csv(calibration_data, file = paste0("/share/projects/data/circe/v20240331/clif/Mortality_model/output/calibration_data_", site, ".csv"), row.names = FALSE)
 
 ggplot(calibration_data, aes(x = predicted_prob, y = actual_prob)) +
   geom_point() +
@@ -744,8 +764,8 @@ pr_data <- data.frame(precision = pr_obj$curve[,2],
                       pr_thresholds = pr_obj$curve[,3],
                       site=site)
 
-write.csv(roc_data, file = paste0('output/roc_curve_data_', site, '.csv'), row.names = FALSE)
-write.csv(pr_data, file = paste0('output/pr_curve_data_', site, '.csv'), row.names = FALSE)
+write.csv(roc_data, file = paste0("/share/projects/data/circe/v20240331/clif/Mortality_model/output/roc_curve_data_", site, '.csv'), row.names = FALSE)
+write.csv(pr_data, file = paste0('/share/projects/data/circe/v20240331/clif/Mortality_model/output/pr_curve_data_', site, '.csv'), row.names = FALSE)
 
 par(mfrow = c(1, 2))
 
